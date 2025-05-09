@@ -1,9 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 from scipy.sparse.linalg import spsolve
-import matplotlib.pyplot as plt
 
-# === Core MG functions ===
 def f_func(x, y):
     return 2 * np.pi**2 * np.sin(np.pi*x) * np.sin(np.pi*y)
 
@@ -20,9 +18,10 @@ def build_rhs(N, f):
     h2 = (1.0/N)**2
     b = np.zeros(n*n)
     for j in range(1, N):
+        y = j / N
         for i in range(1, N):
-            k = (j-1)*n + (i-1)
-            b[k] = h2 * f(i/N, j/N)
+            x = i / N
+            b[(j-1)*n + (i-1)] = h2 * f(x, y)
     return b
 
 def weighted_jacobi(A, x, b, omega, nu):
@@ -33,77 +32,66 @@ def weighted_jacobi(A, x, b, omega, nu):
     return x
 
 def restrict_full_weight(r, N):
-    n = N - 1; nc = N//2 - 1
-    R = r.reshape((n,n))
-    Rc = np.zeros((nc,nc))
+    n = N - 1
+    nc = N//2 - 1
+    R = r.reshape((n, n))
+    Rc = np.zeros((nc, nc))
     for i in range(nc):
         for j in range(nc):
             fi, fj = 2*i+1, 2*j+1
-            Rc[i,j] = (4*R[fi,fj]
-                       +2*(R[fi-1,fj]+R[fi+1,fj]+R[fi,fj-1]+R[fi,fj+1])
-                       +(R[fi-1,fj-1]+R[fi-1,fj+1]+R[fi+1,fj-1]+R[fi+1,fj+1]))/16.0
+            Rc[i,j] = (
+                4*R[fi,fj]
+                +2*(R[fi-1,fj]+R[fi+1,fj]+R[fi,fj-1]+R[fi,fj+1])
+                +(R[fi-1,fj-1]+R[fi-1,fj+1]+R[fi+1,fj-1]+R[fi+1,fj+1])
+            ) / 16.0
     return Rc.flatten()
 
 def prolong_bilinear(ec, N):
-    n = N - 1; nc = N//2 - 1
+    n = N - 1
+    nc = N//2 - 1
     E = np.zeros((n,n))
     C = ec.reshape((nc,nc))
     for i in range(nc):
         for j in range(nc):
             E[2*i+1,2*j+1] = C[i,j]
-    for i in range(1,n,2):
-        for j in range(2,n-1,2):
-            E[i,j] = 0.5*(E[i,j-1]+E[i,j+1])
-    for i in range(2,n-1,2):
-        for j in range(1,n,2):
-            E[i,j] = 0.5*(E[i-1,j]+E[i+1,j])
-    for i in range(2,n-1,2):
-        for j in range(2,n-1,2):
-            E[i,j] = 0.25*(E[i-1,j-1]+E[i-1,j+1]+E[i+1,j-1]+E[i+1,j+1])
+    for i in range(1, n, 2):
+        for j in range(2, n-1, 2):
+            E[i,j] = 0.5*(E[i,j-1] + E[i,j+1])
+    for i in range(2, n-1, 2):
+        for j in range(1, n, 2):
+            E[i,j] = 0.5*(E[i-1,j] + E[i+1,j])
+    for i in range(2, n-1, 2):
+        for j in range(2, n-1, 2):
+            E[i,j] = 0.25*(
+                E[i-1,j-1] + E[i-1,j+1] +
+                E[i+1,j-1] + E[i+1,j+1]
+            )
     return E.flatten()
 
 def v_cycle(N, x, b, omega, nu, level, level_max):
     A = build_poisson_matrix(N)
-    x = weighted_jacobi(A,x,b,omega,nu)
+    x = weighted_jacobi(A, x, b, omega, nu)
     r = b - A.dot(x)
     if level == level_max:
-        return spsolve(A,b)
-    bc = restrict_full_weight(r,N)
+        return spsolve(A, b)
+    bc = restrict_full_weight(r, N)
     xc = np.zeros_like(bc)
-    xc = v_cycle(N//2,xc,bc,omega,nu,level+1,level_max)
-    x += prolong_bilinear(xc,N)
-    x = weighted_jacobi(A,x,b,omega,nu)
+    xc = v_cycle(N//2, xc, bc, omega, nu, level+1, level_max)
+    x += prolong_bilinear(xc, N)
+    x = weighted_jacobi(A, x, b, omega, nu)
     return x
 
-def multigrid_history(N, f, omega=2/3, nu=2, cycles=10):
+def multigrid_solver(N, f, omega=2/3, nu=2, lmax=None, tol=1e-7, max_cycles=20):
     A = build_poisson_matrix(N)
     b = build_rhs(N, f)
     x = np.zeros_like(b)
-    hist = []
-    level_max = int(np.log2(N//4))
-    for _ in range(cycles):
+    if lmax is None:
+        lmax = int(np.log2(N//4))
+    for k in range(1, max_cycles+1):
         res = np.linalg.norm(b - A.dot(x))
-        hist.append(res)
-        x = v_cycle(N, x, b, omega, nu, 0, level_max)
-    return np.array(hist)
-
-# === 4.3 Convergence Experiments ===
-
-# Experiment 1: Fixed N=64
-hist64 = multigrid_history(64, f_func, omega=2/3, nu=2, cycles=8)
-plt.figure(figsize=(6,4))
-plt.semilogy(range(len(hist64)), hist64, '-o')
-plt.xlabel('V-cycle Number'); plt.ylabel('Residual Norm')
-plt.title('Convergence for N=64')
-plt.grid(True)
-
-# Experiment 2: Varying N
-plt.figure(figsize=(6,4))
-for N in [32, 64, 128]:
-    hist = multigrid_history(N, f_func, omega=2/3, nu=2, cycles=6)
-    plt.semilogy(range(len(hist)), hist, '-o', label=f'N={N}')
-plt.xlabel('V-cycle Number'); plt.ylabel('Residual Norm')
-plt.title('Convergence for Different Grid Sizes')
-plt.legend(); plt.grid(True)
-
-plt.show()
+        print(f"Cycle {k-1} residual = {res:.2e}")
+        if res < tol:
+            print("Converged.")
+            break
+        x = v_cycle(N, x, b, omega, nu, 0, lmax)
+    return x
