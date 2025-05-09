@@ -1,5 +1,3 @@
-# test_4_3_1.py
-
 import time
 import matplotlib.pyplot as plt
 from mg_solver import MGSolver, f_func
@@ -19,7 +17,7 @@ for l in lmax_vals:
     dt = time.time() - t0
 
     times.append(dt)
-    coarses.append(res['coarse'])
+    coarses.append(res['cycles'])
     histories.append(res['hist'])
 
 plt.figure()
@@ -43,9 +41,9 @@ plt.ylabel('Residual norm')
 plt.title(f'Residuals (N={N})')
 plt.legend()
 
-print(f"{'lmax':^6} | {'Time (s)':^10} | {'#Coarse Solves':^16} | {'#V-cycles':^10}")
-print('-'*50)
-for l, t, c, h in zip(lmax_vals, times, coarses, histories):
-    print(f"{l:^6} | {t:^10.4f} | {c:^16} | {len(h):^10}")
+print(f"{'lmax':^6} | {'Time (s)':^10} | {'V-cycles':^10}")
+print('-'*32)
+for l, t, c in zip(lmax_vals, times, cycles):
+    print(f"{l:^6} | {t:^10.4f} | {c:^10d}")
 
 plt.show()
